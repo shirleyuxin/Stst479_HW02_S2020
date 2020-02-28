@@ -1,0 +1,67 @@
+---
+title: "HW02"
+author: "Yuxin Huang"
+date: "2/26/2020"
+output: rmarkdown::github_document
+---
+
+```{r}
+library(blscrapeR)
+library(data.table)
+library(tidyverse)
+library(modelr)
+df <- get_bls_county()
+WIunemployment = df %>% filter(fips_state == 55)
+bridges = read_csv("https://www.fhwa.dot.gov/bridge/nbi/2018/delimited/WI18.txt")
+newdata = bridges %>% 
+  group_by(COUNTY_CODE_003) %>% 
+  summarise(meanIMP = mean(as.numeric(TOTAL_IMP_COST_096), na.rm = T),
+            meanADT = mean(as.numeric(ADT_029), na.rm = T)) %>%
+  left_join(WIunemployment,by = c("COUNTY_CODE_003" = "fips_county"))
+
+
+#data = fread("WA18.txt")
+#colnames(data)[1] = "fips_state"
+#df$fips_state = as.integer(df$fips_state)
+#data = data %>% group_by(fips_state) 
+```
+###Predict the number of unemployed
+```{r}
+#newdata = newdata %>% left_join(data, by = "fips_state")
+
+unem_linear = lm(unemployed ~ meanIMP + meanADT, data = newdata)
+summary(unem_linear)
+newdata = newdata %>% add_predictions(unem_linear, var = "pre_unemployed")
+```
+
+###Predict the unemployment rate
+```{r}
+rateModel = lm(unemployed_rate ~ meanIMP + meanADT, data = newdata)
+summary(rateModel)
+newdata = newdata %>% add_predictions(rateModel, var = "pre_rate")
+```
+
+###Additional predictors using the unemployed number and rate from the previous month
+```{r}
+df2 <- get_bls_county("November 2019")
+WINov = df2 %>% filter(fips_state == 55) %>% select(unemployed, unemployed_rate) 
+colnames(WINov)[1] = "Nov_unem"
+colnames(WINov)[2] = "Nov_rate"
+newdata["Nov_unem"] = WINov[1]
+newdata["Nov_rate"] = WINov[2]
+
+m3 = lm(unemployed_rate ~ meanIMP + meanADT + Nov_unem + Nov_rate, data = newdata)
+summary(m3)
+newdata = newdata %>% add_predictions(m3, var = "new_pre_rate")
+
+m4 = lm(unemployed ~ meanIMP + meanADT + Nov_unem + Nov_rate, data = newdata)
+summary(m4)
+newdata = newdata %>% add_predictions(m4, var = "new_pre_num")
+#newdata = left_join(newdata, WINov)
+
+newdata
+
+```
+
+The predictors I chose are Average Daily Traffic and Total Project Cost, and they are all significant when the number of unemployed and unemployment rate from previous month are excluded. The last two models show the previous month data are more significant.
+
